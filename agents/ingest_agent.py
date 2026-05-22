@@ -1,5 +1,6 @@
 import glob
 import os
+import shutil
 from pathlib import Path
 from typing import List, Tuple
 
@@ -118,7 +119,13 @@ def store_in_vectordb(
 def seed_standards() -> Chroma:
     """
     Ingests all standards docs into the RFC standards collection.
+    Clears old vectorstore first to avoid duplicate chunks.
     """
+    vectorstore_dir = Path(VECTORSTORE_PATH)
+
+    if vectorstore_dir.exists():
+        shutil.rmtree(vectorstore_dir)
+
     all_chunks = []
 
     for file_path in glob.glob("standards_docs/*.md"):
@@ -130,7 +137,6 @@ def seed_standards() -> Chroma:
         raise ValueError("No standards docs found in standards_docs/")
 
     return store_in_vectordb(all_chunks, COLLECTION_STANDARDS)
-
 
 def ingest_rfc(file_path: str) -> Tuple[Chroma, List[Document]]:
     """
