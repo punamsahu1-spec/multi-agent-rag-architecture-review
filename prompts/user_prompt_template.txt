@@ -1,0 +1,25 @@
+@'
+## Retrieved Standards Context
+
+{retrieved_context}
+
+## RFC Checklist to Apply
+
+{checklist}
+
+## RFC Document Under Review
+
+{rfc_text}
+
+## Instructions
+
+Review the RFC against the retrieved standards context.
+
+Important:
+- Use only the retrieved standards context.
+- Do not add external standards or assumptions.
+- Cite the source standard for major findings.
+- If the RFC is incomplete, explain what is missing and why it matters.
+- If the retrieved context is insufficient, flag for human architect review.
+- Return the output using the exact structure defined in the system prompt.
+'@ | Set-Content prompts\user_prompt_template.txt -Encoding utf8

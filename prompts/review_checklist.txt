@@ -1,0 +1,55 @@
+@'
+RFC Review Checklist:
+
+1. Problem Statement
+- Is the problem clearly stated?
+- Is the business or technical impact measurable?
+- Are affected stakeholders identified?
+
+2. Proposed Solution
+- Is the solution clearly described?
+- Are main components and integration points explained?
+- Are alternatives and trade-offs documented?
+
+3. Security
+- Is authentication defined?
+- Is authorization defined?
+- Is PII handling explained?
+- Is encryption at rest and in transit covered?
+- Is secrets management described?
+- Is a threat model included?
+
+4. Scalability
+- Are expected RPS, peak load, users, or data volume specified?
+- Is scaling strategy described?
+- Are bottlenecks identified?
+- Are SLOs defined?
+
+5. Reliability
+- Are retry, timeout, circuit breaker, and failure handling strategies defined?
+- Is idempotency covered where retries are used?
+- Is disaster recovery or backup approach mentioned where applicable?
+
+6. Observability
+- Are metrics defined?
+- Are RED metrics covered: Rate, Errors, Duration?
+- Are logs structured?
+- Are traces/correlation IDs included?
+- Are alert thresholds, dashboards, and runbooks defined?
+
+7. Rollback
+- Is rollback procedure defined?
+- Is rollback owner named?
+- Is rollback time estimated?
+- Is data migration rollback considered?
+
+8. Dependencies
+- Are internal and external dependencies listed?
+- Are SLA and failure impact of dependencies described?
+
+9. Cost and Operations
+- Are infrastructure and third-party costs estimated?
+- Is cost monitoring defined?
+- Is support ownership clear?
+- Is on-call impact mentioned?
+'@ | Set-Content prompts\review_checklist.txt -Encoding utf8
