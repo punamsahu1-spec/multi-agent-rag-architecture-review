@@ -1,7 +1,7 @@
 import os
 import sys
 from pathlib import Path
-
+from agents.rubric_agent import evaluate_rfc_with_rubric
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -87,21 +87,26 @@ with tab_review:
             with st.spinner("Running ArchReviewAI review..."):
                 temp_file_path = save_temp_rfc(rfc_text)
                 result = review_rfc_file(temp_file_path)
+                rubric_result = evaluate_rfc_with_rubric(rfc_text)
 
             st.subheader("Review Summary")
 
-            col1, col2, col3 = st.columns(3)
+                        c1, c2, c3, c4 = st.columns(4)
 
-            with col1:
+            with c1:
                 st.metric("Retrieval Status", result["retrieval_status"])
 
-            with col2:
+            with c2:
                 st.metric("Retrieved Standards", result["retrieved_docs_count"])
 
-            with col3:
-                st.metric("Decision", "Check Report")
+            with c3:
+                st.metric("Rubric Score", rubric_result["rubric_score"])
 
-            st.subheader("RFC Review Report")
+            with c4:
+                st.metric("Decision", rubric_result["decision"])
+
+            st.subheader("Deterministic Rubric Result")
+            st.json(rubric_result)
             st.markdown(result["review_report"])
 
             st.download_button(
