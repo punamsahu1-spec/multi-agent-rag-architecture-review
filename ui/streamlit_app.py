@@ -1,7 +1,7 @@
 import os
 import sys
 from pathlib import Path
-from agents.rubric_agent import evaluate_rfc_with_rubric
+
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -12,7 +12,12 @@ sys.path.append(PROJECT_ROOT)
 from agents.ingest_agent import seed_standards
 from agents.review_agent import review_rfc_file
 from agents.retrieval_agent import retrieve_with_fallback, format_retrieved_docs
-
+from agents.rubric_agent import evaluate_rfc_with_rubric
+from agents.specialist_agents import run_all_specialists, merge_specialist_reviews
+from agents.supervisor_agent import (
+    decide_final_recommendation,
+    format_supervisor_summary,
+)
 
 load_dotenv()
 
@@ -20,13 +25,21 @@ SAMPLE_RFC_PATH = "sample_rfcs/customer_notification_service_rfc.md"
 
 
 def load_sample_rfc() -> str:
+    """
+    Loads the sample RFC used for demo.
+    """
     path = Path(SAMPLE_RFC_PATH)
+
     if not path.exists():
         return ""
+
     return path.read_text(encoding="utf-8")
 
 
 def save_temp_rfc(rfc_text: str) -> str:
+    """
+    Saves pasted RFC text as a temporary markdown file for the review pipeline.
+    """
     temp_path = Path("sample_rfcs/temp_streamlit_rfc.md")
     temp_path.parent.mkdir(exist_ok=True)
     temp_path.write_text(rfc_text, encoding="utf-8")
@@ -47,12 +60,20 @@ st.info(
     "using enterprise standards. The goal is to improve RFC quality before senior architect review."
 )
 
+
 with st.sidebar:
     st.header("System Status")
     st.success("LLM: Gemini")
     st.success("Vector DB: ChromaDB")
     st.success("RAG: Standards-grounded retrieval")
-    st.info("Flow: RFC → Retrieve Standards → Generate Review")
+    st.success("Rubric: Deterministic scoring")
+    st.success("Agents: Security, Scalability, Observability")
+    st.success("Supervisor: Final decision layer")
+
+    st.info(
+        "Flow: RFC → Retrieve Standards → Rubric Score → Specialist Agents "
+        "→ Supervisor Decision → Review Report"
+    )
 
     if st.button("🌱 Seed / Refresh Standards KB"):
         with st.spinner("Seeding standards into ChromaDB..."):
@@ -86,38 +107,92 @@ with tab_review:
         else:
             with st.spinner("Running ArchReviewAI review..."):
                 temp_file_path = save_temp_rfc(rfc_text)
-                result = review_rfc_file(temp_file_path)
+
+                # 1. Deterministic scoring.
                 rubric_result = evaluate_rfc_with_rubric(rfc_text)
+
+                # 2. General LLM review grounded in retrieved standards.
+                result = review_rfc_file(temp_file_path)
+
+                # 3. Retrieve context for specialist agents.
+                specialist_docs, specialist_retrieval_status = retrieve_with_fallback(
+                    query=(
+                        "security scalability reliability observability architecture "
+                        "requirements for RFC review"
+                    ),
+                    use_hyde=False,
+                    top_k=5,
+                )
+
+                # 4. Run specialist agents.
+                specialist_results = run_all_specialists(
+                    rfc_text=rfc_text,
+                    context_docs=specialist_docs,
+                )
+
+                specialist_report = merge_specialist_reviews(specialist_results)
+
+                # 5. Supervisor final recommendation.
+                supervisor_result = decide_final_recommendation(
+                    rubric_result=rubric_result,
+                    specialist_results=specialist_results,
+                )
+
+                supervisor_summary = format_supervisor_summary(supervisor_result)
 
             st.subheader("Review Summary")
 
-                        c1, c2, c3, c4 = st.columns(4)
+            col1, col2, col3, col4 = st.columns(4)
 
-            with c1:
+            with col1:
                 st.metric("Retrieval Status", result["retrieval_status"])
 
-            with c2:
+            with col2:
                 st.metric("Retrieved Standards", result["retrieved_docs_count"])
 
-            with c3:
+            with col3:
                 st.metric("Rubric Score", rubric_result["rubric_score"])
 
-            with c4:
-                st.metric("Decision", rubric_result["decision"])
+            with col4:
+                st.metric("Final Decision", supervisor_result["final_decision"])
+
+            st.subheader("Supervisor Final Recommendation")
+            st.markdown(supervisor_summary)
 
             st.subheader("Deterministic Rubric Result")
             st.json(rubric_result)
+
+            st.subheader("RFC Review Report")
             st.markdown(result["review_report"])
 
+            st.subheader("Specialist Agent Reviews")
+            st.markdown(specialist_report)
+
             st.download_button(
-                label="⬇️ Download Review Report",
+                label="⬇️ Download General Review Report",
                 data=result["review_report"],
                 file_name="archreviewai_rfc_review_report.md",
                 mime="text/markdown",
             )
 
-            with st.expander("Retrieved Sources Used"):
+            st.download_button(
+                label="⬇️ Download Specialist Review Report",
+                data=specialist_report,
+                file_name="archreviewai_specialist_review_report.md",
+                mime="text/markdown",
+            )
+
+            with st.expander("Retrieved Sources Used by General Review Agent"):
                 st.json(result["retrieved_sources"])
+
+            with st.expander("Specialist Agent Retrieval Status"):
+                st.write(specialist_retrieval_status)
+
+            with st.expander("Raw Supervisor Result"):
+                st.json(supervisor_result)
+
+            with st.expander("Raw Specialist Results"):
+                st.json(specialist_results)
 
 
 with tab_evidence:
@@ -125,7 +200,10 @@ with tab_evidence:
 
     query = st.text_input(
         "Ask what standards are relevant",
-        value="What security, observability, scalability, rollback, and cost requirements must an RFC include?",
+        value=(
+            "What security, observability, scalability, rollback, "
+            "and cost requirements must an RFC include?"
+        ),
     )
 
     if st.button("🔍 Retrieve Standards"):
@@ -141,12 +219,23 @@ with tab_evidence:
 
         st.subheader("Retrieved Standards Chunks")
 
-        for index, doc in enumerate(docs, start=1):
+        seen = set()
+        display_index = 1
+
+        for doc in docs:
             source = doc.metadata.get("source", "unknown")
             chunk_id = doc.metadata.get("chunk_id", "unknown")
+            dedupe_key = f"{source}:{chunk_id}"
 
-            st.markdown(f"### {index}. {source} — chunk `{chunk_id}`")
+            if dedupe_key in seen:
+                continue
+
+            seen.add(dedupe_key)
+
+            st.markdown(f"### {display_index}. {source} — chunk `{chunk_id}`")
             st.write(doc.page_content)
+
+            display_index += 1
 
         with st.expander("Formatted Context Sent to LLM"):
             st.text(format_retrieved_docs(docs))
@@ -163,6 +252,15 @@ with tab_arch:
         "RAG Retrieval over Enterprise Standards\n"
         "        ↓\n"
         "Relevant Standards Context\n"
+        "        ↓\n"
+        "Deterministic Rubric Scoring\n"
+        "        ↓\n"
+        "Specialist Agents\n"
+        "  ├── Security Agent\n"
+        "  ├── Scalability / Reliability Agent\n"
+        "  └── Observability Agent\n"
+        "        ↓\n"
+        "Supervisor Decision Layer\n"
         "        ↓\n"
         "Gemini Review Agent\n"
         "        ↓\n"
@@ -182,14 +280,24 @@ with tab_arch:
     st.markdown("- **Embeddings:** Text is converted into semantic vectors.")
     st.markdown("- **Vector DB:** ChromaDB stores searchable standards.")
     st.markdown("- **Retrieval:** Relevant standards are retrieved for each RFC.")
+    st.markdown("- **Rubric:** Rule-based scoring and decisioning.")
+    st.markdown("- **Specialist agents:** Security, scalability/reliability, and observability.")
+    st.markdown("- **Supervisor:** Consolidates rubric and specialist outputs into a final decision.")
     st.markdown("- **Review Agent:** Gemini generates the structured RFC review.")
     st.markdown("- **UI:** Streamlit provides a leadership-friendly demo.")
 
+    st.subheader("Key Design Principle")
+
+    st.info(
+        "The LLM explains the gaps using retrieved standards. "
+        "The deterministic rubric calculates the score. "
+        "The supervisor decides the final recommendation."
+    )
+
     st.subheader("Next Planned Components")
 
-    st.markdown("- Specialist agents: Security, scalability, observability.")
-    st.markdown("- Supervisor recommendation.")
     st.markdown("- LangGraph workflow.")
     st.markdown("- LangSmith observability.")
     st.markdown("- RAGAS evaluation.")
+    st.markdown("- Retrieval quality metrics: Recall@K, Precision@K, MRR.")
     st.markdown("- Day 3 extensions: n8n, MCP, Graph RAG, FastAPI, Docker.")
