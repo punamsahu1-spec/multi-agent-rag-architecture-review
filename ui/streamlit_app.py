@@ -16,6 +16,13 @@ from agents.category_retrieval_agent import (
     retrieve_by_category,
     format_category_retrieval_summary,
     format_category_retrieved_docs,
+    calculate_retrieval_coverage,
+)
+from agents.category_retrieval_agent import (
+    retrieve_by_category,
+    format_category_retrieval_summary,
+    format_category_retrieved_docs,
+    calculate_retrieval_coverage,
 )
 from agents.demo_review_generator import generate_demo_review
 from agents.demo_specialist_generator import (
@@ -184,7 +191,7 @@ with tab_review:
                 category_retrieval_summary = format_category_retrieval_summary(
                     category_retrieval_result
                 )
-
+                retrieval_coverage = calculate_retrieval_coverage(category_retrieval_result)
                 # 3. Generate main review report.
                 if demo_mode:
                     review_report = generate_demo_review(
@@ -244,7 +251,7 @@ with tab_review:
 
             st.subheader("Review Summary")
 
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3, col4, col5 = st.columns(5)
 
             with col1:
                 st.metric("Retrieval Status", result["retrieval_status"])
@@ -257,7 +264,8 @@ with tab_review:
 
             with col4:
                 st.metric("Final Decision", supervisor_result["final_decision"])
-
+            with col5:
+                st.metric("RAG Coverage", f"{retrieval_coverage['coverage_percent']}%")
             st.subheader("Supervisor Final Recommendation")
             st.markdown(supervisor_summary)
 
@@ -298,7 +306,8 @@ with tab_review:
 
             with st.expander("Raw Specialist Results"):
                 st.json(specialist_results)
-
+            with st.expander("Retrieval Coverage"):
+                st.json(retrieval_coverage)
 
 with tab_evidence:
     st.header("RAG Evidence Explorer")
@@ -329,10 +338,11 @@ with tab_evidence:
                 "Category-wise retrieval completed: "
                 f"{category_retrieval_result['total_unique_chunks']} unique chunks"
             )
+            retrieval_coverage = calculate_retrieval_coverage(category_retrieval_result)
 
         st.subheader("Retrieval Status")
         st.write(status)
-
+        st.metric("RAG Coverage", f"{retrieval_coverage['coverage_percent']}%")
         st.subheader("Category-wise Retrieval Summary")
         st.markdown(format_category_retrieval_summary(category_retrieval_result))
 

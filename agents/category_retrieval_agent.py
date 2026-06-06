@@ -171,7 +171,33 @@ def format_category_retrieved_docs(category_retrieval_result: Dict) -> str:
     docs = category_retrieval_result.get("all_unique_docs", [])
     return format_retrieved_docs(docs)
 
+def calculate_retrieval_coverage(category_retrieval_result: Dict) -> Dict:
+    """
+    Calculates simple retrieval coverage across review categories.
+    """
 
+    category_results = category_retrieval_result.get("category_results", {})
+    total_categories = len(category_results)
+
+    covered_categories = [
+        category
+        for category, result in category_results.items()
+        if result.get("docs_count", 0) > 0
+    ]
+
+    covered_count = len(covered_categories)
+
+    if total_categories == 0:
+        coverage_percent = 0
+    else:
+        coverage_percent = round((covered_count / total_categories) * 100, 2)
+
+    return {
+        "total_categories": total_categories,
+        "covered_categories": covered_count,
+        "coverage_percent": coverage_percent,
+        "missing_categories": category_retrieval_result.get("missing_categories", []),
+    }
 if __name__ == "__main__":
     result = retrieve_by_category(top_k_per_category=2, use_hyde=False)
 
