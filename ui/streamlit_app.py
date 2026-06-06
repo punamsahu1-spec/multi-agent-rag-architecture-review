@@ -106,10 +106,11 @@ with st.sidebar:
     st.success("Agents: Security, Scalability, Observability")
     st.success("Supervisor: Final decision layer")
     st.success("Orchestration: Lightweight crew-style flow")
+    st.success("Evaluation: Basic quality gates")
 
     st.info(
         "Flow: RFC → Category Retrieval → Rubric Score → Specialist Agents "
-        "→ Supervisor Decision → Human Review Routing → Review Report"
+        "→ Supervisor Decision → Human Review Routing → Quality Gates → Review Report"
     )
 
     if st.button("🌱 Seed / Refresh Standards KB"):
@@ -332,9 +333,99 @@ with tab_review:
                     ),
                     "Why this matters": (
                         "This keeps the workflow explainable before introducing "
-                        "heavier frameworks such as CrewAI or LangGraph."
+                        "heavier frameworks such as CrewAI, AutoGen, or LangGraph."
                     ),
                 }
+
+                # 9. Evaluation and observability summary.
+                evaluation_summary = {
+                    "Retrieval coverage": f"{retrieval_coverage['coverage_percent']}%",
+                    "Rubric score": rubric_result["rubric_score"],
+                    "Final decision": supervisor_result["final_decision"],
+                    "Human review required": supervisor_result["human_review_required"],
+                    "Report generated": "Yes",
+                }
+
+                observability_trace = [
+                    {
+                        "Step": "Input Guard",
+                        "Status": "Completed",
+                        "Output": "RFC text accepted",
+                    },
+                    {
+                        "Step": "Category Retriever",
+                        "Status": "Completed",
+                        "Output": (
+                            f"{category_retrieval_result['total_unique_chunks']} "
+                            "unique chunks retrieved"
+                        ),
+                    },
+                    {
+                        "Step": "Rubric Agent",
+                        "Status": "Completed",
+                        "Output": f"Score {rubric_result['rubric_score']}",
+                    },
+                    {
+                        "Step": "Specialist Agents",
+                        "Status": "Completed",
+                        "Output": "Domain reviews completed",
+                    },
+                    {
+                        "Step": "Supervisor Agent",
+                        "Status": "Completed",
+                        "Output": supervisor_result["final_decision"],
+                    },
+                    {
+                        "Step": "Human Review Router",
+                        "Status": "Completed",
+                        "Output": (
+                            f"Human review: "
+                            f"{supervisor_result['human_review_required']}"
+                        ),
+                    },
+                    {
+                        "Step": "Report Generator",
+                        "Status": "Completed",
+                        "Output": "Review report generated",
+                    },
+                ]
+
+                quality_gates = [
+                    {
+                        "Gate": "RAG coverage available",
+                        "Result": (
+                            "PASS"
+                            if retrieval_coverage["coverage_percent"] > 0
+                            else "WARN"
+                        ),
+                    },
+                    {
+                        "Gate": "Rubric score available",
+                        "Result": (
+                            "PASS" if rubric_result.get("rubric_score") else "WARN"
+                        ),
+                    },
+                    {
+                        "Gate": "Supervisor decision available",
+                        "Result": (
+                            "PASS"
+                            if supervisor_result.get("final_decision")
+                            else "WARN"
+                        ),
+                    },
+                    {
+                        "Gate": "Human review routing available",
+                        "Result": (
+                            "PASS"
+                            if supervisor_result.get("human_review_required")
+                            else "WARN"
+                        ),
+                    },
+                    {
+                        "Gate": "Report generated",
+                        "Result": "PASS" if result.get("review_report") else "WARN",
+                    },
+                ]
 
             st.subheader("Review Summary")
 
@@ -378,6 +469,15 @@ with tab_review:
 
             st.subheader("Orchestration Summary")
             st.json(orchestration_summary)
+
+            st.subheader("Evaluation Summary")
+            st.json(evaluation_summary)
+
+            st.subheader("Observability Trace")
+            st.table(observability_trace)
+
+            st.subheader("Quality Gates")
+            st.table(quality_gates)
 
             st.subheader("Deterministic Rubric Result")
             st.json(rubric_result)
@@ -518,6 +618,8 @@ with tab_arch:
         "  ├── NEEDS_REVISION\n"
         "  └── ARCHITECT_REVIEW\n"
         "        ↓\n"
+        "Quality Gates / Observability Trace\n"
+        "        ↓\n"
         "Review Report Generator\n"
         "  ├── Demo Mode: Local rule-based report\n"
         "  └── Live Mode: Gemini review report\n"
@@ -547,9 +649,10 @@ with tab_arch:
     st.markdown("- **Workflow State:** Shows which review steps completed.")
     st.markdown("- **Agent Trace:** Shows what each agent contributed.")
     st.markdown("- **Agent Roles:** Shows specialist responsibilities.")
-    st.markdown(
-        "- **Orchestration Summary:** Shows lightweight crew-style task flow."
-    )
+    st.markdown("- **Orchestration Summary:** Shows lightweight crew-style task flow.")
+    st.markdown("- **Evaluation Summary:** Shows key review-quality signals.")
+    st.markdown("- **Observability Trace:** Shows workflow step status and outputs.")
+    st.markdown("- **Quality Gates:** Shows basic pass/warn checks before trusting output.")
     st.markdown("- **Review generator:** Supports demo-safe local mode and live Gemini mode.")
     st.markdown("- **UI:** Streamlit provides a leadership-friendly demo.")
 
@@ -562,6 +665,7 @@ with tab_arch:
         "Human Review Routing escalates risky RFCs. "
         "Workflow State and Agent Trace make the process explainable. "
         "Agent Roles and Orchestration Summary show a lightweight crew-style workflow. "
+        "Evaluation Summary, Observability Trace, and Quality Gates make the review measurable. "
         "Demo mode keeps the app runnable without external LLM dependency."
     )
 
@@ -595,6 +699,7 @@ with tab_arch:
     ]
 
     st.table(crewai_mapping)
+
     st.subheader("AutoGen-style Mapping")
 
     autogen_mapping = [
@@ -625,16 +730,45 @@ with tab_arch:
     ]
 
     st.table(autogen_mapping)
+
     st.subheader("Framework-neutral Design Choice")
 
     st.info(
-    "ArchReviewAI first defines the business workflow and agent responsibilities clearly. "
-    "CrewAI or AutoGen can be added later as orchestration frameworks, but the architecture "
-    "does not depend on a specific framework."
+        "ArchReviewAI first defines the business workflow and agent responsibilities clearly. "
+        "CrewAI, AutoGen, or LangGraph can be added later as orchestration frameworks, "
+        "but the architecture does not depend on a specific framework."
     )
+
+    st.subheader("Evaluation and Observability Mapping")
+
+    eval_obs_mapping = [
+        {
+            "Current ArchReviewAI View": "Agent Trace",
+            "Future Tool Mapping": "LangSmith trace",
+        },
+        {
+            "Current ArchReviewAI View": "RAG Coverage",
+            "Future Tool Mapping": "RAGAS context recall / context precision",
+        },
+        {
+            "Current ArchReviewAI View": "Quality Gates",
+            "Future Tool Mapping": "CI/CD evaluation checks",
+        },
+        {
+            "Current ArchReviewAI View": "Human Review Routing",
+            "Future Tool Mapping": "Human-in-the-loop governance workflow",
+        },
+        {
+            "Current ArchReviewAI View": "Retrieved Sources",
+            "Future Tool Mapping": "Grounded evidence audit trail",
+        },
+    ]
+
+    st.table(eval_obs_mapping)
+
     st.subheader("Next Planned Components")
 
-    st.markdown("- Optional actual CrewAI/AutoGen implementation.")
+    st.markdown("- Optional actual CrewAI / AutoGen implementation.")
     st.markdown("- LangGraph workflow.")
     st.markdown("- Hybrid keyword + vector search.")
     st.markdown("- Reranking.")
