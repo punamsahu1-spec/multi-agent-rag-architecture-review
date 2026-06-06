@@ -8,10 +8,14 @@ from dotenv import load_dotenv
 # Allow imports from project root.
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(PROJECT_ROOT)
-
+from agents.demo_specialist_generator import (
+    run_demo_specialists,
+    merge_demo_specialist_reviews,
+)
 from agents.ingest_agent import seed_standards
 from agents.review_agent import review_rfc_file
 from agents.retrieval_agent import retrieve_with_fallback, format_retrieved_docs
+from agents.demo_review_generator import generate_demo_review
 from agents.rubric_agent import evaluate_rfc_with_rubric
 from agents.specialist_agents import run_all_specialists, merge_specialist_reviews
 from agents.supervisor_agent import (
@@ -19,9 +23,19 @@ from agents.supervisor_agent import (
     format_supervisor_summary,
 )
 
+
 load_dotenv()
 
 SAMPLE_RFC_PATH = "sample_rfcs/customer_notification_service_rfc.md"
+
+
+def is_demo_mode() -> bool:
+    """
+    DEMO_MODE=true means:
+    - Do not call Gemini for the main review report.
+    - Use local rule-based fallback review.
+    """
+    return os.getenv("DEMO_MODE", "false").lower() == "true"
 
 
 def load_sample_rfc() -> str:
@@ -46,11 +60,36 @@ def save_temp_rfc(rfc_text: str) -> str:
     return str(temp_path)
 
 
+def build_result_from_demo_review(
+    review_report: str,
+    retrieval_status: str,
+    retrieved_docs: list,
+) -> dict:
+    """
+    Builds the same result shape as review_rfc_file()
+    so the UI can remain unchanged.
+    """
+    return {
+        "retrieval_status": retrieval_status,
+        "retrieved_docs_count": len(retrieved_docs),
+        "retrieved_sources": [
+            {
+                "source": doc.metadata.get("source", "unknown"),
+                "chunk_id": doc.metadata.get("chunk_id", "unknown"),
+            }
+            for doc in retrieved_docs
+        ],
+        "review_report": review_report,
+    }
+
+
 st.set_page_config(
     page_title="ArchReviewAI",
     page_icon="🏗️",
     layout="wide",
 )
+
+demo_mode = is_demo_mode()
 
 st.title("🏗️ ArchReviewAI")
 st.markdown("### Agentic RAG Copilot for Enterprise RFC Reviews")
@@ -63,7 +102,13 @@ st.info(
 
 with st.sidebar:
     st.header("System Status")
-    st.success("LLM: Gemini")
+
+    if demo_mode:
+        st.success("Mode: Demo-safe local review")
+        st.caption("No external LLM call is made for the main review report.")
+    else:
+        st.success("LLM: Gemini live mode")
+
     st.success("Vector DB: ChromaDB")
     st.success("RAG: Standards-grounded retrieval")
     st.success("Rubric: Deterministic scoring")
@@ -93,6 +138,15 @@ tab_review, tab_evidence, tab_arch = st.tabs(
 with tab_review:
     st.header("RFC Review Demo")
 
+    if demo_mode:
+        st.warning(
+            "Demo Mode is ON. The main review report is generated locally without calling Gemini."
+        )
+    else:
+        st.info(
+            "Live Mode is ON. Gemini will be used for the main review report."
+        )
+
     default_rfc = load_sample_rfc()
 
     rfc_text = st.text_area(
@@ -111,10 +165,7 @@ with tab_review:
                 # 1. Deterministic scoring.
                 rubric_result = evaluate_rfc_with_rubric(rfc_text)
 
-                # 2. General LLM review grounded in retrieved standards.
-                result = review_rfc_file(temp_file_path)
-
-                # 3. Retrieve context for specialist agents.
+                # 2. Retrieve standards context once.
                 specialist_docs, specialist_retrieval_status = retrieve_with_fallback(
                     query=(
                         "security scalability reliability observability architecture "
@@ -124,13 +175,50 @@ with tab_review:
                     top_k=5,
                 )
 
-                # 4. Run specialist agents.
-                specialist_results = run_all_specialists(
-                    rfc_text=rfc_text,
-                    context_docs=specialist_docs,
-                )
+                # 3. Generate main review report.
+                if demo_mode:
+                    review_report = generate_demo_review(
+                        rfc_text=rfc_text,
+                        rubric_result=rubric_result,
+                        retrieved_docs=specialist_docs,
+                    )
 
-                specialist_report = merge_specialist_reviews(specialist_results)
+                    result = build_result_from_demo_review(
+                        review_report=review_report,
+                        retrieval_status=specialist_retrieval_status,
+                        retrieved_docs=specialist_docs,
+                    )
+                else:
+                    result = review_rfc_file(temp_file_path)
+
+                # 4. Run specialist agents.
+                # Note: If specialist agents call Gemini internally, they may still require API access.
+                # In demo mode, if this fails, show a safe fallback specialist report.
+                try:
+                    specialist_results = run_all_specialists(
+                        rfc_text=rfc_text,
+                        context_docs=specialist_docs,
+                    )
+
+                    specialist_report = merge_specialist_reviews(specialist_results)
+
+                except Exception as error:
+                    specialist_results = {
+                        "specialist_fallback": {
+                            "status": "FALLBACK",
+                            "review": (
+                                "Specialist agent live review was skipped or failed. "
+                                f"Reason: {error}"
+                            ),
+                        }
+                    }
+
+                    specialist_report = (
+                        "# Specialist Agent Reviews\n\n"
+                        "Specialist live review was not available in this run.\n\n"
+                        "Use the deterministic rubric result and retrieved standards evidence "
+                        "for demo-safe review."
+                    )
 
                 # 5. Supervisor final recommendation.
                 supervisor_result = decide_final_recommendation(
@@ -182,7 +270,7 @@ with tab_review:
                 mime="text/markdown",
             )
 
-            with st.expander("Retrieved Sources Used by General Review Agent"):
+            with st.expander("Retrieved Sources Used by Main Review"):
                 st.json(result["retrieved_sources"])
 
             with st.expander("Specialist Agent Retrieval Status"):
@@ -237,7 +325,7 @@ with tab_evidence:
 
             display_index += 1
 
-        with st.expander("Formatted Context Sent to LLM"):
+        with st.expander("Formatted Context Sent to LLM / Review Generator"):
             st.text(format_retrieved_docs(docs))
 
 
@@ -262,11 +350,13 @@ with tab_arch:
         "        ↓\n"
         "Supervisor Decision Layer\n"
         "        ↓\n"
-        "Gemini Review Agent\n"
+        "Review Report Generator\n"
+        "  ├── Demo Mode: Local rule-based report\n"
+        "  └── Live Mode: Gemini review report\n"
         "        ↓\n"
         "Output Guard\n"
         "        ↓\n"
-        "Review Report\n"
+        "Final Review Report\n"
         "        ↓\n"
         "Recommendation: APPROVE / NEEDS_REVISION / ARCHITECT_REVIEW"
     )
@@ -283,19 +373,21 @@ with tab_arch:
     st.markdown("- **Rubric:** Rule-based scoring and decisioning.")
     st.markdown("- **Specialist agents:** Security, scalability/reliability, and observability.")
     st.markdown("- **Supervisor:** Consolidates rubric and specialist outputs into a final decision.")
-    st.markdown("- **Review Agent:** Gemini generates the structured RFC review.")
+    st.markdown("- **Review generator:** Supports demo-safe local mode and live Gemini mode.")
     st.markdown("- **UI:** Streamlit provides a leadership-friendly demo.")
 
     st.subheader("Key Design Principle")
 
     st.info(
-        "The LLM explains the gaps using retrieved standards. "
+        "The LLM explains the gaps when live mode is available. "
         "The deterministic rubric calculates the score. "
-        "The supervisor decides the final recommendation."
+        "The supervisor decides the final recommendation. "
+        "Demo mode keeps the app runnable without external LLM dependency."
     )
 
     st.subheader("Next Planned Components")
 
+    st.markdown("- Make specialist agents demo-safe without external LLM calls.")
     st.markdown("- LangGraph workflow.")
     st.markdown("- LangSmith observability.")
     st.markdown("- RAGAS evaluation.")
