@@ -11,13 +11,6 @@ sys.path.append(PROJECT_ROOT)
 
 from agents.ingest_agent import seed_standards
 from agents.review_agent import review_rfc_file
-from agents.retrieval_agent import retrieve_with_fallback, format_retrieved_docs
-from agents.category_retrieval_agent import (
-    retrieve_by_category,
-    format_category_retrieval_summary,
-    format_category_retrieved_docs,
-    calculate_retrieval_coverage,
-)
 from agents.category_retrieval_agent import (
     retrieve_by_category,
     format_category_retrieval_summary,
@@ -43,18 +36,10 @@ SAMPLE_RFC_PATH = "sample_rfcs/customer_notification_service_rfc.md"
 
 
 def is_demo_mode() -> bool:
-    """
-    DEMO_MODE=true means:
-    - Do not call Gemini for the main review report.
-    - Use local rule-based fallback review.
-    """
     return os.getenv("DEMO_MODE", "false").lower() == "true"
 
 
 def load_sample_rfc() -> str:
-    """
-    Loads the sample RFC used for demo.
-    """
     path = Path(SAMPLE_RFC_PATH)
 
     if not path.exists():
@@ -64,9 +49,6 @@ def load_sample_rfc() -> str:
 
 
 def save_temp_rfc(rfc_text: str) -> str:
-    """
-    Saves pasted RFC text as a temporary markdown file for the review pipeline.
-    """
     temp_path = Path("sample_rfcs/temp_streamlit_rfc.md")
     temp_path.parent.mkdir(exist_ok=True)
     temp_path.write_text(rfc_text, encoding="utf-8")
@@ -78,10 +60,6 @@ def build_result_from_demo_review(
     retrieval_status: str,
     retrieved_docs: list,
 ) -> dict:
-    """
-    Builds the same result shape as review_rfc_file()
-    so the UI can remain unchanged.
-    """
     return {
         "retrieval_status": retrieval_status,
         "retrieved_docs_count": len(retrieved_docs),
@@ -127,10 +105,11 @@ with st.sidebar:
     st.success("Rubric: Deterministic scoring")
     st.success("Agents: Security, Scalability, Observability")
     st.success("Supervisor: Final decision layer")
+    st.success("Orchestration: Lightweight crew-style flow")
 
     st.info(
         "Flow: RFC → Category Retrieval → Rubric Score → Specialist Agents "
-        "→ Supervisor Decision → Review Report"
+        "→ Supervisor Decision → Human Review Routing → Review Report"
     )
 
     if st.button("🌱 Seed / Refresh Standards KB"):
@@ -191,7 +170,11 @@ with tab_review:
                 category_retrieval_summary = format_category_retrieval_summary(
                     category_retrieval_result
                 )
-                retrieval_coverage = calculate_retrieval_coverage(category_retrieval_result)
+
+                retrieval_coverage = calculate_retrieval_coverage(
+                    category_retrieval_result
+                )
+
                 # 3. Generate main review report.
                 if demo_mode:
                     review_report = generate_demo_review(
@@ -249,6 +232,110 @@ with tab_review:
 
                 supervisor_summary = format_supervisor_summary(supervisor_result)
 
+                # 6. Workflow state.
+                workflow_state = {
+                    "Input received": "Yes" if rfc_text.strip() else "No",
+                    "Retrieval complete": "Yes",
+                    "Retrieved unique chunks": category_retrieval_result[
+                        "total_unique_chunks"
+                    ],
+                    "RAG coverage": f"{retrieval_coverage['coverage_percent']}%",
+                    "Rubric complete": "Yes",
+                    "Rubric score": rubric_result["rubric_score"],
+                    "Specialist review complete": "Yes",
+                    "Supervisor decision": supervisor_result["final_decision"],
+                    "Human review required": supervisor_result[
+                        "human_review_required"
+                    ],
+                    "Report generated": "Yes",
+                }
+
+                # 7. Agent trace.
+                agent_trace = [
+                    {
+                        "Agent": "Category Retriever",
+                        "Action": (
+                            f"Retrieved {category_retrieval_result['total_unique_chunks']} "
+                            "unique chunks across review categories"
+                        ),
+                    },
+                    {
+                        "Agent": "Rubric Agent",
+                        "Action": (
+                            f"Calculated readiness score: "
+                            f"{rubric_result['rubric_score']}"
+                        ),
+                    },
+                    {
+                        "Agent": "Specialist Agents",
+                        "Action": "Completed domain-specific review",
+                    },
+                    {
+                        "Agent": "Supervisor Agent",
+                        "Action": (
+                            f"Final decision: "
+                            f"{supervisor_result['final_decision']}"
+                        ),
+                    },
+                    {
+                        "Agent": "Human Review Router",
+                        "Action": (
+                            f"Human review required: "
+                            f"{supervisor_result['human_review_required']}"
+                        ),
+                    },
+                    {
+                        "Agent": "Report Generator",
+                        "Action": "Generated final RFC review report",
+                    },
+                ]
+
+                # 8. Lightweight crew-style role view.
+                agent_roles = [
+                    {
+                        "Role": "Security Reviewer",
+                        "Responsibility": (
+                            "Checks authentication, authorization, PII, encryption, "
+                            "secrets, and audit logging."
+                        ),
+                    },
+                    {
+                        "Role": "Scalability / Reliability Reviewer",
+                        "Responsibility": (
+                            "Checks RPS, peak load, scaling strategy, timeout, retry, "
+                            "DLQ, idempotency, DR, and backup."
+                        ),
+                    },
+                    {
+                        "Role": "Observability Reviewer",
+                        "Responsibility": (
+                            "Checks metrics, logs, tracing, alerts, dashboards, "
+                            "runbooks, and escalation path."
+                        ),
+                    },
+                    {
+                        "Role": "Supervisor / Lead Architect",
+                        "Responsibility": (
+                            "Consolidates rubric and specialist outputs into APPROVE, "
+                            "NEEDS_REVISION, or ARCHITECT_REVIEW."
+                        ),
+                    },
+                ]
+
+                orchestration_summary = {
+                    "Mode": "Simple Python orchestration",
+                    "Pattern": "Specialist agents + supervisor",
+                    "Task flow": (
+                        "RFC received → category retrieval → rubric scoring → "
+                        "specialist reviews → supervisor consolidation → "
+                        "human review routing → report generation"
+                    ),
+                    "Why this matters": (
+                        "This keeps the workflow explainable before introducing "
+                        "heavier frameworks such as CrewAI or LangGraph."
+                    ),
+                }
+
             st.subheader("Review Summary")
 
             col1, col2, col3, col4, col5 = st.columns(5)
@@ -264,10 +351,33 @@ with tab_review:
 
             with col4:
                 st.metric("Final Decision", supervisor_result["final_decision"])
+
             with col5:
                 st.metric("RAG Coverage", f"{retrieval_coverage['coverage_percent']}%")
+
             st.subheader("Supervisor Final Recommendation")
             st.markdown(supervisor_summary)
+
+            st.subheader("Human Review Routing")
+
+            if supervisor_result["human_review_required"] == "YES":
+                st.error("Human Review Required: YES")
+            else:
+                st.success("Human Review Required: NO")
+
+            st.write(supervisor_result["reason"])
+
+            st.subheader("Workflow State")
+            st.json(workflow_state)
+
+            st.subheader("Agent Trace")
+            st.table(agent_trace)
+
+            st.subheader("Agent Roles")
+            st.table(agent_roles)
+
+            st.subheader("Orchestration Summary")
+            st.json(orchestration_summary)
 
             st.subheader("Deterministic Rubric Result")
             st.json(rubric_result)
@@ -301,13 +411,15 @@ with tab_review:
             with st.expander("Category-wise Retrieval Summary"):
                 st.markdown(category_retrieval_summary)
 
+            with st.expander("Retrieval Coverage"):
+                st.json(retrieval_coverage)
+
             with st.expander("Raw Supervisor Result"):
                 st.json(supervisor_result)
 
             with st.expander("Raw Specialist Results"):
                 st.json(specialist_results)
-            with st.expander("Retrieval Coverage"):
-                st.json(retrieval_coverage)
+
 
 with tab_evidence:
     st.header("RAG Evidence Explorer")
@@ -323,7 +435,8 @@ with tab_evidence:
 
     st.caption(
         "Phase 2 uses fixed category-wise retrieval instead of one broad query. "
-        "This gives balanced context across RFC template, security, scalability, reliability, observability, rollback, and operations."
+        "This gives balanced context across RFC template, security, scalability, "
+        "reliability, observability, rollback, and operations."
     )
 
     if st.button("🔍 Retrieve Standards"):
@@ -334,17 +447,26 @@ with tab_evidence:
             )
 
             docs = category_retrieval_result["all_unique_docs"]
+
             status = (
                 "Category-wise retrieval completed: "
                 f"{category_retrieval_result['total_unique_chunks']} unique chunks"
             )
-            retrieval_coverage = calculate_retrieval_coverage(category_retrieval_result)
+
+            retrieval_coverage = calculate_retrieval_coverage(
+                category_retrieval_result
+            )
 
         st.subheader("Retrieval Status")
         st.write(status)
+
         st.metric("RAG Coverage", f"{retrieval_coverage['coverage_percent']}%")
+
         st.subheader("Category-wise Retrieval Summary")
         st.markdown(format_category_retrieval_summary(category_retrieval_result))
+
+        with st.expander("Retrieval Coverage Details"):
+            st.json(retrieval_coverage)
 
         st.subheader("Retrieved Standards Chunks")
 
@@ -378,42 +500,56 @@ with tab_arch:
         "        ↓\n"
         "Input Guard\n"
         "        ↓\n"
-        "Category-wise RAG Retrieval over Enterprise Standards\n"
+        "Category Retriever Agent\n"
         "        ↓\n"
         "Balanced Standards Context\n"
         "        ↓\n"
-        "Deterministic Rubric Scoring\n"
+        "Rubric Agent\n"
         "        ↓\n"
         "Specialist Agents\n"
         "  ├── Security Agent\n"
         "  ├── Scalability / Reliability Agent\n"
         "  └── Observability Agent\n"
         "        ↓\n"
-        "Supervisor Decision Layer\n"
+        "Supervisor Agent\n"
+        "        ↓\n"
+        "Human Review Routing\n"
+        "  ├── APPROVE\n"
+        "  ├── NEEDS_REVISION\n"
+        "  └── ARCHITECT_REVIEW\n"
         "        ↓\n"
         "Review Report Generator\n"
         "  ├── Demo Mode: Local rule-based report\n"
         "  └── Live Mode: Gemini review report\n"
         "        ↓\n"
-        "Output Guard\n"
-        "        ↓\n"
-        "Final Review Report\n"
-        "        ↓\n"
-        "Recommendation: APPROVE / NEEDS_REVISION / ARCHITECT_REVIEW"
+        "Final Review Report"
     )
 
     st.code(architecture_flow, language="text")
 
     st.subheader("Current MVP Components")
 
-    st.markdown("- **Standards knowledge base:** Security, scalability, observability, cost, rollback.")
+    st.markdown(
+        "- **Standards knowledge base:** Security, scalability, observability, cost, rollback."
+    )
     st.markdown("- **Chunking:** Standards are split into searchable chunks.")
     st.markdown("- **Embeddings:** Text is converted into semantic vectors.")
     st.markdown("- **Vector DB:** ChromaDB stores searchable standards.")
     st.markdown("- **Retrieval:** Category-wise retrieval gives balanced standards context.")
     st.markdown("- **Rubric:** Rule-based scoring and decisioning.")
-    st.markdown("- **Specialist agents:** Security, scalability/reliability, and observability.")
-    st.markdown("- **Supervisor:** Consolidates rubric and specialist outputs into a final decision.")
+    st.markdown(
+        "- **Specialist agents:** Security, scalability/reliability, and observability."
+    )
+    st.markdown(
+        "- **Supervisor:** Consolidates rubric and specialist outputs into a final decision."
+    )
+    st.markdown("- **Human Review Routing:** Escalates risky RFCs to human architects.")
+    st.markdown("- **Workflow State:** Shows which review steps completed.")
+    st.markdown("- **Agent Trace:** Shows what each agent contributed.")
+    st.markdown("- **Agent Roles:** Shows specialist responsibilities.")
+    st.markdown(
+        "- **Orchestration Summary:** Shows lightweight crew-style task flow."
+    )
     st.markdown("- **Review generator:** Supports demo-safe local mode and live Gemini mode.")
     st.markdown("- **UI:** Streamlit provides a leadership-friendly demo.")
 
@@ -423,16 +559,85 @@ with tab_arch:
         "The LLM explains the gaps when live mode is available. "
         "The deterministic rubric calculates the score. "
         "The supervisor decides the final recommendation. "
-        "Category-wise retrieval improves RAG grounding quality. "
+        "Human Review Routing escalates risky RFCs. "
+        "Workflow State and Agent Trace make the process explainable. "
+        "Agent Roles and Orchestration Summary show a lightweight crew-style workflow. "
         "Demo mode keeps the app runnable without external LLM dependency."
     )
 
+    st.subheader("CrewAI-style Mapping")
+
+    crewai_mapping = [
+        {
+            "ArchReviewAI Concept": "Security Reviewer",
+            "CrewAI-style Concept": "Agent with security architect role",
+        },
+        {
+            "ArchReviewAI Concept": "Scalability / Reliability Reviewer",
+            "CrewAI-style Concept": "Agent with distributed systems architect role",
+        },
+        {
+            "ArchReviewAI Concept": "Observability Reviewer",
+            "CrewAI-style Concept": "Agent with SRE reviewer role",
+        },
+        {
+            "ArchReviewAI Concept": "Supervisor / Lead Architect",
+            "CrewAI-style Concept": "Manager agent that consolidates outputs",
+        },
+        {
+            "ArchReviewAI Concept": "Review dimensions",
+            "CrewAI-style Concept": "Tasks assigned to agents",
+        },
+        {
+            "ArchReviewAI Concept": "Architecture review workflow",
+            "CrewAI-style Concept": "Crew executing a review process",
+        },
+    ]
+
+    st.table(crewai_mapping)
+    st.subheader("AutoGen-style Mapping")
+
+    autogen_mapping = [
+        {
+            "ArchReviewAI Concept": "Security Reviewer",
+            "AutoGen-style Concept": "Assistant agent focused on security risks",
+        },
+        {
+            "ArchReviewAI Concept": "Scalability / Reliability Reviewer",
+            "AutoGen-style Concept": "Assistant agent focused on scale and resilience",
+        },
+        {
+            "ArchReviewAI Concept": "Observability Reviewer",
+            "AutoGen-style Concept": "Assistant agent focused on operations visibility",
+        },
+        {
+            "ArchReviewAI Concept": "Supervisor / Lead Architect",
+            "AutoGen-style Concept": "Coordinator or critic agent",
+        },
+        {
+            "ArchReviewAI Concept": "Specialist review exchange",
+            "AutoGen-style Concept": "Multi-agent conversation",
+        },
+        {
+            "ArchReviewAI Concept": "Final recommendation",
+            "AutoGen-style Concept": "Consolidated group output",
+        },
+    ]
+
+    st.table(autogen_mapping)
+    st.subheader("Framework-neutral Design Choice")
+
+    st.info(
+    "ArchReviewAI first defines the business workflow and agent responsibilities clearly. "
+    "CrewAI or AutoGen can be added later as orchestration frameworks, but the architecture "
+    "does not depend on a specific framework."
+    )
     st.subheader("Next Planned Components")
 
-    st.markdown("- Retrieval quality tests.")
+    st.markdown("- Optional actual CrewAI/AutoGen implementation.")
+    st.markdown("- LangGraph workflow.")
     st.markdown("- Hybrid keyword + vector search.")
     st.markdown("- Reranking.")
-    st.markdown("- LangGraph workflow.")
     st.markdown("- LangSmith observability.")
     st.markdown("- RAGAS evaluation.")
     st.markdown("- Retrieval quality metrics: Recall@K, Precision@K, MRR.")
