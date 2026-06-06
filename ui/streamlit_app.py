@@ -8,14 +8,20 @@ from dotenv import load_dotenv
 # Allow imports from project root.
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(PROJECT_ROOT)
+
+from agents.ingest_agent import seed_standards
+from agents.review_agent import review_rfc_file
+from agents.retrieval_agent import retrieve_with_fallback, format_retrieved_docs
+from agents.category_retrieval_agent import (
+    retrieve_by_category,
+    format_category_retrieval_summary,
+    format_category_retrieved_docs,
+)
+from agents.demo_review_generator import generate_demo_review
 from agents.demo_specialist_generator import (
     run_demo_specialists,
     merge_demo_specialist_reviews,
 )
-from agents.ingest_agent import seed_standards
-from agents.review_agent import review_rfc_file
-from agents.retrieval_agent import retrieve_with_fallback, format_retrieved_docs
-from agents.demo_review_generator import generate_demo_review
 from agents.rubric_agent import evaluate_rfc_with_rubric
 from agents.specialist_agents import run_all_specialists, merge_specialist_reviews
 from agents.supervisor_agent import (
@@ -110,13 +116,13 @@ with st.sidebar:
         st.success("LLM: Gemini live mode")
 
     st.success("Vector DB: ChromaDB")
-    st.success("RAG: Standards-grounded retrieval")
+    st.success("RAG: Category-wise standards retrieval")
     st.success("Rubric: Deterministic scoring")
     st.success("Agents: Security, Scalability, Observability")
     st.success("Supervisor: Final decision layer")
 
     st.info(
-        "Flow: RFC → Retrieve Standards → Rubric Score → Specialist Agents "
+        "Flow: RFC → Category Retrieval → Rubric Score → Specialist Agents "
         "→ Supervisor Decision → Review Report"
     )
 
@@ -140,12 +146,10 @@ with tab_review:
 
     if demo_mode:
         st.warning(
-            "Demo Mode is ON. The main review report is generated locally without calling Gemini."
+            "Demo Mode is ON. The main review report and specialist reviews are generated locally without calling Gemini."
         )
     else:
-        st.info(
-            "Live Mode is ON. Gemini will be used for the main review report."
-        )
+        st.info("Live Mode is ON. Gemini will be used for live LLM reviews.")
 
     default_rfc = load_sample_rfc()
 
@@ -165,14 +169,20 @@ with tab_review:
                 # 1. Deterministic scoring.
                 rubric_result = evaluate_rfc_with_rubric(rfc_text)
 
-                # 2. Retrieve standards context once.
-                specialist_docs, specialist_retrieval_status = retrieve_with_fallback(
-                    query=(
-                        "security scalability reliability observability architecture "
-                        "requirements for RFC review"
-                    ),
+                # 2. Category-wise retrieval for balanced RAG grounding.
+                category_retrieval_result = retrieve_by_category(
+                    top_k_per_category=2,
                     use_hyde=False,
-                    top_k=5,
+                )
+
+                specialist_docs = category_retrieval_result["all_unique_docs"]
+                specialist_retrieval_status = (
+                    "Category-wise retrieval: "
+                    f"{category_retrieval_result['total_unique_chunks']} unique chunks"
+                )
+
+                category_retrieval_summary = format_category_retrieval_summary(
+                    category_retrieval_result
                 )
 
                 # 3. Generate main review report.
@@ -192,33 +202,37 @@ with tab_review:
                     result = review_rfc_file(temp_file_path)
 
                 # 4. Run specialist agents.
-                # Note: If specialist agents call Gemini internally, they may still require API access.
-                # In demo mode, if this fails, show a safe fallback specialist report.
-                try:
-                    specialist_results = run_all_specialists(
-                        rfc_text=rfc_text,
-                        context_docs=specialist_docs,
+                if demo_mode:
+                    specialist_results = run_demo_specialists(rubric_result)
+                    specialist_report = merge_demo_specialist_reviews(
+                        specialist_results
                     )
-
-                    specialist_report = merge_specialist_reviews(specialist_results)
-
-                except Exception as error:
-                    specialist_results = {
-                        "specialist_fallback": {
-                            "status": "FALLBACK",
-                            "review": (
-                                "Specialist agent live review was skipped or failed. "
-                                f"Reason: {error}"
-                            ),
+                else:
+                    try:
+                        specialist_results = run_all_specialists(
+                            rfc_text=rfc_text,
+                            context_docs=specialist_docs,
+                        )
+                        specialist_report = merge_specialist_reviews(
+                            specialist_results
+                        )
+                    except Exception as error:
+                        specialist_results = {
+                            "specialist_fallback": {
+                                "status": "FALLBACK",
+                                "review": (
+                                    "Specialist agent live review was skipped or failed. "
+                                    f"Reason: {error}"
+                                ),
+                            }
                         }
-                    }
 
-                    specialist_report = (
-                        "# Specialist Agent Reviews\n\n"
-                        "Specialist live review was not available in this run.\n\n"
-                        "Use the deterministic rubric result and retrieved standards evidence "
-                        "for demo-safe review."
-                    )
+                        specialist_report = (
+                            "# Specialist Agent Reviews\n\n"
+                            "Specialist live review was not available in this run.\n\n"
+                            "Use the deterministic rubric result and retrieved standards evidence "
+                            "for demo-safe review."
+                        )
 
                 # 5. Supervisor final recommendation.
                 supervisor_result = decide_final_recommendation(
@@ -276,6 +290,9 @@ with tab_review:
             with st.expander("Specialist Agent Retrieval Status"):
                 st.write(specialist_retrieval_status)
 
+            with st.expander("Category-wise Retrieval Summary"):
+                st.markdown(category_retrieval_summary)
+
             with st.expander("Raw Supervisor Result"):
                 st.json(supervisor_result)
 
@@ -286,24 +303,38 @@ with tab_review:
 with tab_evidence:
     st.header("RAG Evidence Explorer")
 
-    query = st.text_input(
-        "Ask what standards are relevant",
+    st.text_input(
+        "Reference query",
         value=(
             "What security, observability, scalability, rollback, "
             "and cost requirements must an RFC include?"
         ),
+        disabled=True,
+    )
+
+    st.caption(
+        "Phase 2 uses fixed category-wise retrieval instead of one broad query. "
+        "This gives balanced context across RFC template, security, scalability, reliability, observability, rollback, and operations."
     )
 
     if st.button("🔍 Retrieve Standards"):
-        with st.spinner("Searching ChromaDB standards knowledge base..."):
-            docs, status = retrieve_with_fallback(
-                query=query,
+        with st.spinner("Searching ChromaDB standards knowledge base category-wise..."):
+            category_retrieval_result = retrieve_by_category(
+                top_k_per_category=2,
                 use_hyde=False,
-                top_k=5,
+            )
+
+            docs = category_retrieval_result["all_unique_docs"]
+            status = (
+                "Category-wise retrieval completed: "
+                f"{category_retrieval_result['total_unique_chunks']} unique chunks"
             )
 
         st.subheader("Retrieval Status")
         st.write(status)
+
+        st.subheader("Category-wise Retrieval Summary")
+        st.markdown(format_category_retrieval_summary(category_retrieval_result))
 
         st.subheader("Retrieved Standards Chunks")
 
@@ -326,7 +357,7 @@ with tab_evidence:
             display_index += 1
 
         with st.expander("Formatted Context Sent to LLM / Review Generator"):
-            st.text(format_retrieved_docs(docs))
+            st.text(format_category_retrieved_docs(category_retrieval_result))
 
 
 with tab_arch:
@@ -337,9 +368,9 @@ with tab_arch:
         "        ↓\n"
         "Input Guard\n"
         "        ↓\n"
-        "RAG Retrieval over Enterprise Standards\n"
+        "Category-wise RAG Retrieval over Enterprise Standards\n"
         "        ↓\n"
-        "Relevant Standards Context\n"
+        "Balanced Standards Context\n"
         "        ↓\n"
         "Deterministic Rubric Scoring\n"
         "        ↓\n"
@@ -369,7 +400,7 @@ with tab_arch:
     st.markdown("- **Chunking:** Standards are split into searchable chunks.")
     st.markdown("- **Embeddings:** Text is converted into semantic vectors.")
     st.markdown("- **Vector DB:** ChromaDB stores searchable standards.")
-    st.markdown("- **Retrieval:** Relevant standards are retrieved for each RFC.")
+    st.markdown("- **Retrieval:** Category-wise retrieval gives balanced standards context.")
     st.markdown("- **Rubric:** Rule-based scoring and decisioning.")
     st.markdown("- **Specialist agents:** Security, scalability/reliability, and observability.")
     st.markdown("- **Supervisor:** Consolidates rubric and specialist outputs into a final decision.")
@@ -382,12 +413,15 @@ with tab_arch:
         "The LLM explains the gaps when live mode is available. "
         "The deterministic rubric calculates the score. "
         "The supervisor decides the final recommendation. "
+        "Category-wise retrieval improves RAG grounding quality. "
         "Demo mode keeps the app runnable without external LLM dependency."
     )
 
     st.subheader("Next Planned Components")
 
-    st.markdown("- Make specialist agents demo-safe without external LLM calls.")
+    st.markdown("- Retrieval quality tests.")
+    st.markdown("- Hybrid keyword + vector search.")
+    st.markdown("- Reranking.")
     st.markdown("- LangGraph workflow.")
     st.markdown("- LangSmith observability.")
     st.markdown("- RAGAS evaluation.")
