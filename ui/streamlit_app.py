@@ -41,10 +41,8 @@ def is_demo_mode() -> bool:
 
 def load_sample_rfc() -> str:
     path = Path(SAMPLE_RFC_PATH)
-
     if not path.exists():
         return ""
-
     return path.read_text(encoding="utf-8")
 
 
@@ -107,6 +105,7 @@ with st.sidebar:
     st.success("Supervisor: Final decision layer")
     st.success("Orchestration: Lightweight crew-style flow")
     st.success("Evaluation: Basic quality gates")
+    st.success("Governance: Human review + audit-friendly flow")
 
     st.info(
         "Flow: RFC → Category Retrieval → Rubric Score → Specialist Agents "
@@ -153,10 +152,8 @@ with tab_review:
             with st.spinner("Running ArchReviewAI review..."):
                 temp_file_path = save_temp_rfc(rfc_text)
 
-                # 1. Deterministic scoring.
                 rubric_result = evaluate_rfc_with_rubric(rfc_text)
 
-                # 2. Category-wise retrieval for balanced RAG grounding.
                 category_retrieval_result = retrieve_by_category(
                     top_k_per_category=2,
                     use_hyde=False,
@@ -176,7 +173,6 @@ with tab_review:
                     category_retrieval_result
                 )
 
-                # 3. Generate main review report.
                 if demo_mode:
                     review_report = generate_demo_review(
                         rfc_text=rfc_text,
@@ -192,7 +188,6 @@ with tab_review:
                 else:
                     result = review_rfc_file(temp_file_path)
 
-                # 4. Run specialist agents.
                 if demo_mode:
                     specialist_results = run_demo_specialists(rubric_result)
                     specialist_report = merge_demo_specialist_reviews(
@@ -225,7 +220,6 @@ with tab_review:
                             "for demo-safe review."
                         )
 
-                # 5. Supervisor final recommendation.
                 supervisor_result = decide_final_recommendation(
                     rubric_result=rubric_result,
                     specialist_results=specialist_results,
@@ -233,7 +227,6 @@ with tab_review:
 
                 supervisor_summary = format_supervisor_summary(supervisor_result)
 
-                # 6. Workflow state.
                 workflow_state = {
                     "Input received": "Yes" if rfc_text.strip() else "No",
                     "Retrieval complete": "Yes",
@@ -251,7 +244,6 @@ with tab_review:
                     "Report generated": "Yes",
                 }
 
-                # 7. Agent trace.
                 agent_trace = [
                     {
                         "Agent": "Category Retriever",
@@ -291,7 +283,6 @@ with tab_review:
                     },
                 ]
 
-                # 8. Lightweight crew-style role view.
                 agent_roles = [
                     {
                         "Role": "Security Reviewer",
@@ -337,7 +328,6 @@ with tab_review:
                     ),
                 }
 
-                # 9. Evaluation and observability summary.
                 evaluation_summary = {
                     "Retrieval coverage": f"{retrieval_coverage['coverage_percent']}%",
                     "Rubric score": rubric_result["rubric_score"],
@@ -765,37 +755,87 @@ with tab_arch:
     ]
 
     st.table(eval_obs_mapping)
-    st.subheader("Customer Demo Readiness Checklist")
 
-    demo_readiness = [
+    st.subheader("Enterprise Integration Simulation")
+
+    enterprise_integrations = [
         {
-            "Check": "Demo mode available",
-            "Status": "PASS",
-            "Why it matters": "The app can run without external LLM dependency.",
+            "Enterprise Tool": "SharePoint / Confluence",
+            "ArchReviewAI Use": "Source of enterprise architecture standards.",
+            "Current Prototype": "Simulated using local standards_docs folder.",
         },
         {
-            "Check": "Sample RFC available",
-            "Status": "PASS" if Path(SAMPLE_RFC_PATH).exists() else "WARN",
-            "Why it matters": "The demo has a ready test document.",
+            "Enterprise Tool": "GitHub / GitLab",
+            "ArchReviewAI Use": "Source of RFCs, design docs, pull requests, or ADRs.",
+            "Current Prototype": "Simulated using pasted RFC text and sample_rfcs folder.",
         },
         {
-            "Check": "Standards knowledge base expected",
-            "Status": "PASS",
-            "Why it matters": "The review is grounded in enterprise standards.",
+            "Enterprise Tool": "Jira",
+            "ArchReviewAI Use": "Create revision tasks when RFC needs changes.",
+            "Current Prototype": "Simulated through NEEDS_REVISION / ARCHITECT_REVIEW decision.",
         },
         {
-            "Check": "RAG Evidence tab available",
-            "Status": "PASS",
-            "Why it matters": "Users can inspect retrieved standards.",
+            "Enterprise Tool": "Teams / Slack",
+            "ArchReviewAI Use": "Notify architects or engineering teams about review outcome.",
+            "Current Prototype": "Simulated through Human Review Routing section.",
         },
         {
-            "Check": "Human review routing visible",
-            "Status": "PASS",
-            "Why it matters": "Risky RFCs are escalated to humans.",
+            "Enterprise Tool": "Review History / Audit Store",
+            "ArchReviewAI Use": "Maintain trace of RFC review, evidence, score, and decision.",
+            "Current Prototype": "Simulated through Workflow State, Agent Trace, and Quality Gates.",
         },
     ]
 
-    st.table(demo_readiness)
+    st.table(enterprise_integrations)
+
+    st.info(
+        "This prototype uses local files and Streamlit for simplicity. "
+        "In an enterprise setup, the same workflow can connect to SharePoint, Confluence, "
+        "GitHub, Jira, Teams, Slack, and audit stores."
+    )
+
+    st.subheader("Governance and Risk Controls")
+
+    governance_controls = [
+        {
+            "Governance Area": "Policy grounding",
+            "How ArchReviewAI handles it": "Uses RAG over enterprise standards instead of relying only on generic model memory.",
+            "Current implementation": "Category-wise retrieval from standards_docs.",
+        },
+        {
+            "Governance Area": "Human oversight",
+            "How ArchReviewAI handles it": "Routes risky or incomplete RFCs to human architects.",
+            "Current implementation": "Human Review Routing with APPROVE / NEEDS_REVISION / ARCHITECT_REVIEW.",
+        },
+        {
+            "Governance Area": "Auditability",
+            "How ArchReviewAI handles it": "Shows workflow state, agent trace, retrieved sources, and quality gates.",
+            "Current implementation": "Workflow State, Agent Trace, RAG Evidence, Quality Gates.",
+        },
+        {
+            "Governance Area": "Safe demo execution",
+            "How ArchReviewAI handles it": "Supports demo mode without external LLM calls.",
+            "Current implementation": "DEMO_MODE=true local rule-based review.",
+        },
+        {
+            "Governance Area": "Sensitive data awareness",
+            "How ArchReviewAI handles it": "Highlights the need for PII, secrets, encryption, and access-control checks.",
+            "Current implementation": "Security rubric and Security Reviewer.",
+        },
+        {
+            "Governance Area": "Quality control",
+            "How ArchReviewAI handles it": "Uses quality gates before trusting the review output.",
+            "Current implementation": "PASS/WARN quality gate table.",
+        },
+    ]
+
+    st.table(governance_controls)
+
+    st.info(
+        "This section shows that ArchReviewAI is designed as a governed review workflow, "
+        "not just a text-generation demo."
+    )
+
     st.subheader("Next Planned Components")
 
     st.markdown("- Optional actual CrewAI / AutoGen implementation.")
@@ -805,4 +845,4 @@ with tab_arch:
     st.markdown("- LangSmith observability.")
     st.markdown("- RAGAS evaluation.")
     st.markdown("- Retrieval quality metrics: Recall@K, Precision@K, MRR.")
-    st.markdown("- Day 3 extensions: n8n, MCP, Graph RAG, FastAPI, Docker.")
+    st.markdown("- Production packaging and README refresh.")
