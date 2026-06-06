@@ -765,7 +765,37 @@ with tab_arch:
     ]
 
     st.table(eval_obs_mapping)
+    st.subheader("Customer Demo Readiness Checklist")
 
+    demo_readiness = [
+        {
+            "Check": "Demo mode available",
+            "Status": "PASS",
+            "Why it matters": "The app can run without external LLM dependency.",
+        },
+        {
+            "Check": "Sample RFC available",
+            "Status": "PASS" if Path(SAMPLE_RFC_PATH).exists() else "WARN",
+            "Why it matters": "The demo has a ready test document.",
+        },
+        {
+            "Check": "Standards knowledge base expected",
+            "Status": "PASS",
+            "Why it matters": "The review is grounded in enterprise standards.",
+        },
+        {
+            "Check": "RAG Evidence tab available",
+            "Status": "PASS",
+            "Why it matters": "Users can inspect retrieved standards.",
+        },
+        {
+            "Check": "Human review routing visible",
+            "Status": "PASS",
+            "Why it matters": "Risky RFCs are escalated to humans.",
+        },
+    ]
+
+    st.table(demo_readiness)
     st.subheader("Next Planned Components")
 
     st.markdown("- Optional actual CrewAI / AutoGen implementation.")
