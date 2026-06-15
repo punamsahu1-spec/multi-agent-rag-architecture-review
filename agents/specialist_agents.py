@@ -1,237 +1,434 @@
-import os
-from typing import Dict, List
+from __future__ import annotations
 
-from dotenv import load_dotenv
-from langchain_core.documents import Document
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
-
-from agents.guardrail_agent import output_guard
-from agents.retrieval_agent import format_retrieved_docs
+from dataclasses import dataclass
+from typing import Any
 
 
-load_dotenv()
+@dataclass
+class SpecialistFinding:
+    agent: str
+    status: str
+    score: int
+    findings: list[str]
+    recommendations: list[str]
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-if not GOOGLE_API_KEY:
-    raise ValueError(
-        "GOOGLE_API_KEY is missing. Add it to .env in the project root."
+def _contains_any(text: str, keywords: list[str]) -> bool:
+    text_lower = text.lower()
+    return any(keyword.lower() in text_lower for keyword in keywords)
+
+
+def _score_from_findings(total_checks: int, passed_checks: int) -> int:
+    if total_checks == 0:
+        return 0
+    return round((passed_checks / total_checks) * 10)
+
+
+def security_specialist(rfc_text: str) -> SpecialistFinding:
+    checks = {
+        "Authentication and authorization are described": [
+            "authentication",
+            "authorization",
+            "auth",
+            "oauth",
+            "jwt",
+            "sso",
+            "rbac",
+        ],
+        "Secrets and credentials are handled safely": [
+            "secret",
+            "credential",
+            "key vault",
+            "vault",
+            "kms",
+            "managed identity",
+        ],
+        "Sensitive data or PII protection is addressed": [
+            "pii",
+            "personal data",
+            "encryption",
+            "masking",
+            "tokenization",
+            "data privacy",
+        ],
+        "Network or API protection is considered": [
+            "rate limit",
+            "waf",
+            "api gateway",
+            "tls",
+            "https",
+            "firewall",
+        ],
+    }
+
+    findings = []
+    recommendations = []
+    passed = 0
+
+    for check, keywords in checks.items():
+        if _contains_any(rfc_text, keywords):
+            findings.append(f"✅ {check}")
+            passed += 1
+        else:
+            findings.append(f"⚠️ Missing: {check}")
+            recommendations.append(f"Add details for: {check}")
+
+    score = _score_from_findings(len(checks), passed)
+    status = "PASS" if score >= 7 else "NEEDS_REVIEW"
+
+    return SpecialistFinding(
+        agent="Security Specialist",
+        status=status,
+        score=score,
+        findings=findings,
+        recommendations=recommendations,
     )
 
 
-def make_llm() -> ChatGoogleGenerativeAI:
-    return ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        google_api_key=GOOGLE_API_KEY,
-        temperature=0.1,
+def scalability_specialist(rfc_text: str) -> SpecialistFinding:
+    checks = {
+        "Expected load or traffic is described": [
+            "rps",
+            "qps",
+            "tps",
+            "throughput",
+            "traffic",
+            "load",
+            "concurrency",
+        ],
+        "Scaling strategy is described": [
+            "autoscale",
+            "auto scale",
+            "horizontal scaling",
+            "scale out",
+            "partition",
+            "shard",
+        ],
+        "Performance constraints are considered": [
+            "latency",
+            "p95",
+            "p99",
+            "response time",
+            "sla",
+            "slo",
+        ],
+        "Capacity or bottleneck risks are considered": [
+            "capacity",
+            "bottleneck",
+            "queue",
+            "backpressure",
+            "throttle",
+        ],
+    }
+
+    findings = []
+    recommendations = []
+    passed = 0
+
+    for check, keywords in checks.items():
+        if _contains_any(rfc_text, keywords):
+            findings.append(f"✅ {check}")
+            passed += 1
+        else:
+            findings.append(f"⚠️ Missing: {check}")
+            recommendations.append(f"Add details for: {check}")
+
+    score = _score_from_findings(len(checks), passed)
+    status = "PASS" if score >= 7 else "NEEDS_REVIEW"
+
+    return SpecialistFinding(
+        agent="Scalability Specialist",
+        status=status,
+        score=score,
+        findings=findings,
+        recommendations=recommendations,
     )
 
 
-SPECIALIST_PROMPTS = {
-    "security": """
-You are a CISO-level security architect.
+def reliability_specialist(rfc_text: str) -> SpecialistFinding:
+    checks = {
+        "Failure modes are described": [
+            "failure",
+            "failure mode",
+            "outage",
+            "degraded",
+            "fallback",
+        ],
+        "Retry and timeout strategy is considered": [
+            "retry",
+            "timeout",
+            "circuit breaker",
+            "exponential backoff",
+        ],
+        "High availability or resilience is addressed": [
+            "high availability",
+            "ha",
+            "resilience",
+            "redundancy",
+            "multi-zone",
+            "multi region",
+        ],
+        "Recovery and disaster recovery are considered": [
+            "recovery",
+            "rto",
+            "rpo",
+            "disaster recovery",
+            "backup",
+            "restore",
+        ],
+    }
 
-Review ONLY the security aspects of the RFC.
+    findings = []
+    recommendations = []
+    passed = 0
 
-Check:
-- Authentication
-- Authorization
-- Threat model
-- PII handling
-- Encryption at rest and in transit
-- Secrets management
-- OWASP-style application risks
-- Audit logging
+    for check, keywords in checks.items():
+        if _contains_any(rfc_text, keywords):
+            findings.append(f"✅ {check}")
+            passed += 1
+        else:
+            findings.append(f"⚠️ Missing: {check}")
+            recommendations.append(f"Add details for: {check}")
 
-Return this exact structure:
+    score = _score_from_findings(len(checks), passed)
+    status = "PASS" if score >= 7 else "NEEDS_REVIEW"
 
-## Security Review
-
-### Security Score
-X/10
-
-### Key Findings
-- ...
-
-### Critical Gaps
-- ...
-
-### Recommendations
-- ...
-
-### Evidence From Standards
-- ...
-""",
-    "scalability": """
-You are a senior distributed systems architect.
-
-Review ONLY scalability and reliability aspects of the RFC.
-
-Check:
-- RPS / peak load
-- User or data growth
-- Scaling strategy
-- Bottlenecks
-- SLOs / SLIs
-- Timeout strategy
-- Retry strategy
-- Circuit breaker
-- DLQ / dead-letter queue
-- Idempotency
-- Graceful degradation
-- Disaster recovery / backup
-
-Return this exact structure:
-
-## Scalability and Reliability Review
-
-### Scalability/Reliability Score
-X/10
-
-### Key Findings
-- ...
-
-### Critical Gaps
-- ...
-
-### Recommendations
-- ...
-
-### Evidence From Standards
-- ...
-""",
-    "observability": """
-You are an SRE lead.
-
-Review ONLY observability aspects of the RFC.
-
-Check:
-- Metrics
-- RED metrics: Rate, Errors, Duration
-- Structured logs
-- Correlation IDs / trace IDs
-- Distributed tracing
-- Alert thresholds
-- Dashboards
-- Runbooks
-- Escalation path
-- Alert noise control
-
-Return this exact structure:
-
-## Observability Review
-
-### Observability Score
-X/10
-
-### Key Findings
-- ...
-
-### Critical Gaps
-- ...
-
-### Recommendations
-- ...
-
-### Evidence From Standards
-- ...
-""",
-}
+    return SpecialistFinding(
+        agent="Reliability Specialist",
+        status=status,
+        score=score,
+        findings=findings,
+        recommendations=recommendations,
+    )
 
 
-def run_specialist(
-    specialist_type: str,
-    rfc_text: str,
-    context_docs: List[Document],
-) -> Dict[str, str]:
+def observability_specialist(rfc_text: str) -> SpecialistFinding:
+    checks = {
+        "Logging strategy is described": [
+            "log",
+            "logging",
+            "structured log",
+            "correlation id",
+        ],
+        "Metrics are described": [
+            "metric",
+            "metrics",
+            "dashboard",
+            "kpi",
+            "sli",
+        ],
+        "Tracing is described": [
+            "trace",
+            "tracing",
+            "distributed tracing",
+            "opentelemetry",
+        ],
+        "Alerting or runbook is described": [
+            "alert",
+            "alerting",
+            "runbook",
+            "on-call",
+            "incident",
+        ],
+    }
+
+    findings = []
+    recommendations = []
+    passed = 0
+
+    for check, keywords in checks.items():
+        if _contains_any(rfc_text, keywords):
+            findings.append(f"✅ {check}")
+            passed += 1
+        else:
+            findings.append(f"⚠️ Missing: {check}")
+            recommendations.append(f"Add details for: {check}")
+
+    score = _score_from_findings(len(checks), passed)
+    status = "PASS" if score >= 7 else "NEEDS_REVIEW"
+
+    return SpecialistFinding(
+        agent="Observability Specialist",
+        status=status,
+        score=score,
+        findings=findings,
+        recommendations=recommendations,
+    )
+
+
+def cost_operations_specialist(rfc_text: str) -> SpecialistFinding:
+    checks = {
+        "Cost impact is considered": [
+            "cost",
+            "budget",
+            "finops",
+            "pricing",
+            "compute cost",
+            "storage cost",
+        ],
+        "Operational ownership is defined": [
+            "owner",
+            "ownership",
+            "support team",
+            "on-call",
+            "operational owner",
+        ],
+        "Deployment and support model is described": [
+            "deployment",
+            "release",
+            "support",
+            "maintenance",
+            "operations",
+        ],
+        "Capacity or usage monitoring is planned": [
+            "capacity",
+            "usage",
+            "monitoring",
+            "quota",
+            "limit",
+        ],
+    }
+
+    findings = []
+    recommendations = []
+    passed = 0
+
+    for check, keywords in checks.items():
+        if _contains_any(rfc_text, keywords):
+            findings.append(f"✅ {check}")
+            passed += 1
+        else:
+            findings.append(f"⚠️ Missing: {check}")
+            recommendations.append(f"Add details for: {check}")
+
+    score = _score_from_findings(len(checks), passed)
+    status = "PASS" if score >= 7 else "NEEDS_REVIEW"
+
+    return SpecialistFinding(
+        agent="Cost & Operations Specialist",
+        status=status,
+        score=score,
+        findings=findings,
+        recommendations=recommendations,
+    )
+
+
+def rollback_specialist(rfc_text: str) -> SpecialistFinding:
+    checks = {
+        "Rollback strategy is described": [
+            "rollback",
+            "roll back",
+            "revert",
+            "backout",
+        ],
+        "Deployment safety is considered": [
+            "blue green",
+            "blue-green",
+            "canary",
+            "feature flag",
+            "progressive rollout",
+        ],
+        "Data migration rollback is considered": [
+            "migration",
+            "schema change",
+            "backward compatible",
+            "data rollback",
+        ],
+        "Validation after release is described": [
+            "validation",
+            "smoke test",
+            "post deployment",
+            "health check",
+            "verification",
+        ],
+    }
+
+    findings = []
+    recommendations = []
+    passed = 0
+
+    for check, keywords in checks.items():
+        if _contains_any(rfc_text, keywords):
+            findings.append(f"✅ {check}")
+            passed += 1
+        else:
+            findings.append(f"⚠️ Missing: {check}")
+            recommendations.append(f"Add details for: {check}")
+
+    score = _score_from_findings(len(checks), passed)
+    status = "PASS" if score >= 7 else "NEEDS_REVIEW"
+
+    return SpecialistFinding(
+        agent="Rollback Specialist",
+        status=status,
+        score=score,
+        findings=findings,
+        recommendations=recommendations,
+    )
+
+
+def run_specialist_review(rfc_text: str) -> dict[str, Any]:
     """
-    Runs one specialist agent against the RFC and retrieved standards.
+    Runs all specialist agents and returns a structured multi-agent review.
+
+    This is intentionally deterministic and lightweight so the demo is explainable.
+    The LLM can write the review, but these agents provide consistent review signals.
     """
 
-    if specialist_type not in SPECIALIST_PROMPTS:
-        return {
-            "specialist": specialist_type,
-            "status": "ERROR",
-            "review": f"Unknown specialist type: {specialist_type}",
-        }
-
-    if not context_docs:
-        return {
-            "specialist": specialist_type,
-            "status": "NO_CONTEXT",
-            "review": "No standards context available. Flag for human architect review.",
-        }
-
-    llm = make_llm()
-    standards_context = format_retrieved_docs(context_docs)
-
-    system_prompt = SPECIALIST_PROMPTS[specialist_type]
-
-    user_prompt = f"""
-## Retrieved Standards Context
-
-{standards_context}
-
-## RFC Under Review
-
-{rfc_text}
-
-## Instructions
-
-Review only your assigned domain.
-Use only the retrieved standards context.
-Do not invent enterprise standards.
-Cite evidence from the retrieved standards wherever possible.
-"""
-
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=user_prompt),
+    specialists = [
+        security_specialist(rfc_text),
+        scalability_specialist(rfc_text),
+        reliability_specialist(rfc_text),
+        observability_specialist(rfc_text),
+        cost_operations_specialist(rfc_text),
+        rollback_specialist(rfc_text),
     ]
 
-    response = llm.invoke(messages)
-    clean_review = output_guard(response.content)
+    average_score = round(
+        sum(agent.score for agent in specialists) / len(specialists),
+        2,
+    )
 
-    print(f"[SPECIALIST] {specialist_type} review complete")
+    needs_review = [
+        agent.agent
+        for agent in specialists
+        if agent.status != "PASS"
+    ]
+
+    if average_score >= 8 and not needs_review:
+        overall_status = "PASS"
+    elif average_score >= 6:
+        overall_status = "ARCHITECT_REVIEW"
+    else:
+        overall_status = "REWORK_REQUIRED"
 
     return {
-        "specialist": specialist_type,
-        "status": "OK",
-        "review": clean_review,
+        "overall_status": overall_status,
+        "average_score": average_score,
+        "needs_review": needs_review,
+        "specialist_findings": [
+            {
+                "agent": agent.agent,
+                "status": agent.status,
+                "score": agent.score,
+                "findings": agent.findings,
+                "recommendations": agent.recommendations,
+            }
+            for agent in specialists
+        ],
     }
 
 
-def run_all_specialists(
-    rfc_text: str,
-    context_docs: List[Document],
-) -> Dict[str, Dict[str, str]]:
+if __name__ == "__main__":
+    sample_rfc = """
+    This RFC proposes a new customer notification service.
+    The service uses OAuth authentication, structured logging,
+    autoscale, p95 latency SLO, retries, timeout, alerts,
+    rollback using feature flags, and operational ownership.
     """
-    Runs all MVP specialist agents.
-    """
-    results = {}
 
-    for specialist in ["security", "scalability", "observability"]:
-        results[specialist] = run_specialist(
-            specialist_type=specialist,
-            rfc_text=rfc_text,
-            context_docs=context_docs,
-        )
+    review = run_specialist_review(sample_rfc)
 
-    return results
+    from pprint import pprint
 
-
-def merge_specialist_reviews(
-    specialist_results: Dict[str, Dict[str, str]]
-) -> str:
-    """
-    Combines specialist reviews into one markdown section.
-    """
-    sections = ["# Specialist Agent Reviews"]
-
-    for specialist, result in specialist_results.items():
-        sections.append(f"\n---\n\n## {specialist.title()} Agent")
-        sections.append(f"Status: {result.get('status', 'UNKNOWN')}")
-        sections.append(result.get("review", ""))
-
-    return "\n\n".join(sections)
+    pprint(review)
