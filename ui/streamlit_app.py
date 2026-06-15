@@ -585,6 +585,33 @@ with tab_evidence:
 with tab_arch:
     st.header("Architecture View")
 
+    st.subheader("Executive Demo Story")
+
+    executive_story = [
+        {
+            "Story Point": "Problem",
+            "Message": "RFCs often miss security, reliability, observability, rollback, and operational-readiness details.",
+        },
+        {
+            "Story Point": "How ArchReviewAI helps",
+            "Message": "It performs a first-pass review before senior architect approval.",
+        },
+        {
+            "Story Point": "Why the review is grounded",
+            "Message": "It retrieves relevant enterprise standards category-wise instead of relying only on generic model memory.",
+        },
+        {
+            "Story Point": "Why the decision is explainable",
+            "Message": "It shows workflow state, agent trace, rubric score, retrieved sources, and quality gates.",
+        },
+        {
+            "Story Point": "Where humans stay involved",
+            "Message": "Risky or incomplete RFCs are routed to human architects through Human Review Routing.",
+        },
+    ]
+
+    st.table(executive_story)
+
     architecture_flow = (
         "Engineer RFC / Design Doc\n"
         "        ↓\n"
@@ -834,6 +861,75 @@ with tab_arch:
     st.info(
         "This section shows that ArchReviewAI is designed as a governed review workflow, "
         "not just a text-generation demo."
+    )
+
+    st.subheader("Customer Demo Readiness Checklist")
+
+    demo_readiness = [
+        {
+            "Check": "Demo mode available",
+            "Status": "PASS",
+            "Why it matters": "The app can run without external LLM dependency.",
+        },
+        {
+            "Check": "Sample RFC available",
+            "Status": "PASS" if Path(SAMPLE_RFC_PATH).exists() else "WARN",
+            "Why it matters": "The demo has a ready test document.",
+        },
+        {
+            "Check": "Standards knowledge base expected",
+            "Status": "PASS",
+            "Why it matters": "The review is grounded in enterprise standards.",
+        },
+        {
+            "Check": "RAG Evidence tab available",
+            "Status": "PASS",
+            "Why it matters": "Users can inspect retrieved standards.",
+        },
+        {
+            "Check": "Human review routing visible",
+            "Status": "PASS",
+            "Why it matters": "Risky RFCs are escalated to humans.",
+        },
+    ]
+
+    st.table(demo_readiness)
+
+    st.subheader("Customer Demo Script")
+
+    demo_script = [
+        {
+            "Step": "1",
+            "What to show": "Open the sample RFC.",
+            "What to explain": "This is the architecture proposal being reviewed.",
+        },
+        {
+            "Step": "2",
+            "What to show": "Click Run Review.",
+            "What to explain": "The system reviews the RFC against enterprise standards.",
+        },
+        {
+            "Step": "3",
+            "What to show": "Show RAG Coverage and Retrieved Standards.",
+            "What to explain": "The review is grounded in retrieved standards, not generic AI memory.",
+        },
+        {
+            "Step": "4",
+            "What to show": "Show Workflow State, Agent Trace, and Agent Roles.",
+            "What to explain": "The process is explainable step by step.",
+        },
+        {
+            "Step": "5",
+            "What to show": "Show Human Review Routing and Quality Gates.",
+            "What to explain": "Risky RFCs are escalated instead of blindly approved.",
+        },
+    ]
+
+    st.table(demo_script)
+
+    st.info(
+        "Recommended demo path: Run Review → explain RAG Coverage → show Human Review Routing "
+        "→ show Agent Trace → show Quality Gates → show Architecture View."
     )
 
     st.subheader("Next Planned Components")
