@@ -122,9 +122,8 @@ The evaluation framework defines how RFC review quality can be measured using go
 
 ```bash
 # 1. Clone and setup
-git clone https://github.com/punamsahu1-spec/archreviewai-rfc-agent.git
-cd archreviewai-rfc-agent
-
+git clone https://github.com/punamsahu1-spec/multi-agent-rag-architecture-review.git
+cd multi-agent-rag-architecture-review
 # 2. Create virtual environment
 python -m venv venv
 venv\Scripts\activate
